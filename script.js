@@ -3,13 +3,27 @@ const form = document.getElementById('routeForm');
 const results = document.getElementById('results');
 const useLocationBtn = document.getElementById('useLocation');
 
+//BLE
+let device, server, service;
+let characteristics = {};
+let isConnected = false;
+const SERVICE_UUID = '0000abcd-0000-1000-8000-00805f9b34fb';
+const CHAR_UUIDS = {
+  icon: '0000a001-0000-1000-8000-00805f9b34fb',
+  distance: '0000a002-0000-1000-8000-00805f9b34fb',
+  eta: '0000a003-0000-1000-8000-00805f9b34fb',
+  total_km: '0000a004-0000-1000-8000-00805f9b34fb'
+};
+
 let startCoords = null;
 let endCoords = null;
 let map = L.map('map').setView([41.9028, 12.4964], 13); // Roma
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap'
 }).addTo(map);
+
 let routeLayer = null;
+
 
 form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -233,6 +247,112 @@ function decodePolyline(encoded) {
 
     return points;
 }
+
+/********BLE******* */
+async function connectBLE() {
+  try {
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ namePrefix: 'MotoNav' }],
+      optionalServices: [SERVICE_UUID]
+    });
+
+    device.addEventListener('gattserverdisconnected', onDisconnected);
+
+    server = await device.gatt.connect();
+    service = await server.getPrimaryService(SERVICE_UUID);
+
+    for (const [key, uuid] of Object.entries(CHAR_UUIDS)) {
+      characteristics[key] = await service.getCharacteristic(uuid);
+    }
+
+    isConnected = true;
+    console.log('✅ Dispositivo connesso');
+  } catch (error) {
+    console.error('❌ Errore di connessione:', error);
+    isConnected = false;
+  }
+}
+
+function onDisconnected() {
+  console.warn('⚠️ Dispositivo disconnesso');
+  isConnected = false;
+}
+
+
+async function sendNavigationData({ icon, distance, eta, total_km }) {
+  if (!isConnected) {
+    console.warn('🔌 Dispositivo non connesso');
+    return;
+  }
+
+  try {
+    await characteristics.icon.writeValue(Uint8Array.of(icon));
+    await characteristics.distance.writeValue(Uint16Array.of(distance));
+    await characteristics.eta.writeValue(Uint16Array.of(eta));
+    const kmBuffer = new ArrayBuffer(4);
+    new DataView(kmBuffer).setFloat32(0, total_km, true);
+    await characteristics.total_km.writeValue(kmBuffer);
+
+    console.log('📤 Dati inviati:', { icon, distance, eta, total_km });
+  } catch (error) {
+    console.error('❌ Errore invio dati:', error);
+  }
+}
+
+document.getElementById('connect-ble').addEventListener('click', async () => {
+  showScanningIndicator(true);
+  await connectBLE();
+  showScanningIndicator(false);
+});
+
+function showScanningIndicator(active) {
+  const status = document.getElementById('ble-scan-status');
+  status.textContent = active ? '🔍 Cercando dispositivi BLE...' : '';
+}
+
+setInterval(() => {
+  if (!isConnected) return;
+
+  const navData = {
+    icon: 1,             // svolta a destra
+    distance: 85,        // metri
+    eta: 320,            // secondi
+    total_km: 3.2        // km
+  };
+
+  sendNavigationData(navData);
+}, 2000); // ogni 2 secondi
+
+function updateStatusUI() {
+  const status = document.getElementById('ble-status');
+  status.textContent = isConnected ? '🟢 Connesso' : '🔴 Disconnesso';
+}
+
+function showScanningIndicator(active) {
+  const indicator = document.getElementById('ble-scan-status');
+  indicator.textContent = active ? '🔍 Cercando dispositivi BLE...' : '';
+}
+
+async function startBLEScan() {
+  try {
+    console.log('🔍 Scansione BLE avviata...');
+    showScanningIndicator(true); // attiva spinner o messaggio
+
+    const device = await navigator.bluetooth.requestDevice({
+      filters: [{ namePrefix: 'MotoNav' }],
+      optionalServices: ['0000abcd-0000-1000-8000-00805f9b34fb']
+    });
+
+    console.log('📡 Dispositivo trovato:', device.name);
+    showScanningIndicator(false); // disattiva spinner
+
+    // continua con la connessione...
+  } catch (error) {
+    console.warn('❌ Scansione annullata o fallita:', error);
+    showScanningIndicator(false);
+  }
+}
+
 
 function getStepIconAndText(step) {
     const typeMap = {
