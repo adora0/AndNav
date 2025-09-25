@@ -1,0 +1,64 @@
+body {
+  font-family: sans-serif;
+  padding: 20px;
+  background: #f0f0f0;
+}
+form {
+  margin-bottom: 20px;
+}
+.input-group {
+  position: relative;
+  margin-bottom: 10px;
+}
+input, select, button {
+  margin: 5px;
+  padding: 10px;
+}
+#useLocation {
+  padding: 10px;
+  margin-left: 5px;
+}
+.suggestions {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  background: white;
+  border: 1px solid #ccc;
+  max-height: 150px;
+  overflow-y: auto;
+  position: absolute;
+  z-index: 10;
+  width: calc(100% - 10px);
+}
+.suggestions li {
+  padding: 8px;
+  cursor: pointer;
+}
+.suggestions li:hover {
+  background-color: #eee;
+}
+#results {
+  background: white;
+  padding: 20px;
+  border-radius: 5px;
+  max-height: 400px;
+  overflow-y: auto;
+  margin-bottom: 20px;
+}
+#map {
+  height: 400px;
+  border: 1px solid #ccc;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+}
+th, td {
+  border: 1px solid #ccc;
+  padding: 8px;
+  text-align: left;
+}
+thead {
+  background-color: #f9f9f9;
+}
