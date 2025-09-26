@@ -10,6 +10,7 @@
 <body>
   <h1>Calcola il tuo percorso</h1>
   <form id="routeForm">
+
     <div class="input-group">
       <input type="text" id="start" placeholder="Indirizzo di partenza" required />
       <button type="button" id="useLocation">📍 Usa la mia posizione</button>
@@ -23,6 +24,13 @@
       <option value="cycling-regular">Bici</option>
       <option value="driving-car">Moto</option>
     </select>
+    <select id="preference">
+      <option value="recommended">Raccomandato</option>
+      <option value="fastest">Più veloce</option>
+      <option value="shortest">Più breve</option>
+      <option value="custom">Personalizzato</option>
+    </select>
+
     <button type="submit">Calcola percorso</button>
   </form>
 <button id="connect-ble">🔌 Connetti al navigatore</button>

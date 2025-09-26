@@ -15,6 +15,7 @@ const CHAR_UUIDS = {
   total_km: '0000a004-0000-1000-8000-00805f9b34fb'
 };
 
+let currentPoint = null;
 let startCoords = null;
 let endCoords = null;
 let map = L.map('map').setView([41.9028, 12.4964], 13); // Roma
@@ -40,20 +41,18 @@ form.addEventListener('submit', async (e) => {
 });
 
 useLocationBtn.addEventListener('click', () => {
-    navigator.geolocation.getCurrentPosition(async (pos) => {
+    navigator.geolocation.getCurrentPosition((pos) => {
         const lat = pos.coords.latitude;
         const lon = pos.coords.longitude;
-        const label = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
-        document.getElementById('start').value = label;
-        startCoords = [lon, lat];
-        document.getElementById('startSuggestions').innerHTML = '';
+        updateLocation(lat, lon); // usa la funzione globale
     }, () => {
         alert("Impossibile ottenere la posizione.");
     });
 });
 
+
 async function fetchSuggestions(query) {
-    const res = await fetch(`https://api.openrouteservice.org/geocode/autocomplete?api_key=${apiKey}&text=${encodeURIComponent(query)}`);
+    const res = await fetch(`https://api.openrouteservice.org/geocode/autocomplete?api_key=${apiKey}&text=${encodeURIComponent(query)}&boundary.country=IT`);
     const data = await res.json();
 
     if (!data || !data.features || data.features.length === 0) {
@@ -109,6 +108,7 @@ setupAutocomplete('start', 'startSuggestions', coords => startCoords = coords);
 setupAutocomplete('end', 'endSuggestions', coords => endCoords = coords);
 
 async function getRoute(start, end, profile) {
+    const preference = document.getElementById('preference').value;
     const res = await fetch(`https://api.openrouteservice.org/v2/directions/${profile}`, {
         method: 'POST',
         headers: {
@@ -118,7 +118,11 @@ async function getRoute(start, end, profile) {
         body: JSON.stringify({
             coordinates: [start, end],
             instructions: true,
-            language: "IT"
+            language: "IT",
+            maneuvers:true,
+            roundabout_exits:true,
+            preference: preference,
+            attributes:["avgspeed","detourfactor","percentage"]
         })
     });
     return await res.json();
@@ -142,6 +146,7 @@ function displayRoute(data) {
           <th>Istruzione</th>
           <th>Distanza</th>
           <th>Durata</th>
+          <th>Uscita rotonda</th>
         </tr>
       </thead>
       <tbody>
@@ -153,6 +158,7 @@ function displayRoute(data) {
               <td>${step.instruction}</td>
               <td>${step.distance.toFixed(0)} m</td>
               <td>${step.duration.toFixed(0)} sec</td>
+               <td>${(step.type==7)? step.exit_number:''}</td>
             </tr>`;
         }).join('')}
       </tbody>
@@ -353,37 +359,41 @@ async function startBLEScan() {
   }
 }
 
+function updateLocation(lat, lon) {
+    const label = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+    document.getElementById('start').value = label;
+    startCoords = [lon, lat];
+    document.getElementById('startSuggestions').innerHTML = '';
 
-function getStepIconAndText(step) {
-    const typeMap = {
-        0: ['➡️', 'Continua'],
-        1: ['↗️', 'Svolta a destra'],
-        2: ['↖️', 'Svolta a sinistra'],
-        3: ['➡️', 'Gira a destra'],
-        4: ['⬅️', 'Gira a sinistra'],
-        5: ['↘️', 'Mantieni la destra'],
-        6: ['↙️', 'Mantieni la sinistra'],
-        7: ['🔄', 'Inversione a U'],
-        11: ['⬆️', 'Procedi'],
-        12: ['🔁', 'Rotonda'],
-        13: ['↘️', 'Mantieni la destra'],
-        14: ['↙️', 'Mantieni la sinistra'],
-        15: ['🏁', 'Arrivo']
-    };
+    // Aggiorna la mappa
+    const coords = [lat, lon];
+    map.setView(coords, 15);
+     if (currentPoint) {
+            map.removeLayer(currentPoint);
+        }
 
-    const [icon, label] = typeMap[step.type] || ['❓', 'Manovra'];
-    const road = step.name ? ` su <em>${step.name}</em>` : '';
-    const exit = step.exit_number ? ` (uscita ${step.exit_number})` : '';
-    return {
-        icon,
-        text: `${label}${road}${exit}`
-    };
+        // Aggiungi un punto rosso
+           currentPoint = L.circleMarker(coords, {
+               radius: 6,
+               color: 'red',
+               fillColor: 'red',
+               fillOpacity: 1
+           }).addTo(map);
+
 }
 
-let userMarker = null;
-let watchId = null;
+useLocationBtn.addEventListener('click', () => {
+    navigator.geolocation.getCurrentPosition((pos) => {
+        const lat = pos.coords.latitude;
+        const lon = pos.coords.longitude;
+        updateLocation(lat, lon);
+    }, () => {
+        alert("Impossibile ottenere la posizione.");
+    });
+});
 
-function startTrackingPosition() {
+
+/*function startTrackingPosition() {
     if (watchId) return; // già attivo
     watchId = navigator.geolocation.watchPosition(
         pos => {
@@ -404,9 +414,9 @@ function startTrackingPosition() {
         },
         { enableHighAccuracy: true, maximumAge: 1000 }
     );
-}
+}*/
 
-function stopTrackingPosition() {
+/*function stopTrackingPosition() {
     if (watchId) {
         navigator.geolocation.clearWatch(watchId);
         watchId = null;
@@ -415,8 +425,8 @@ function stopTrackingPosition() {
             userMarker = null;
         }
     }
-}
+}*/
 
 // Avvia il tracking quando la pagina viene caricata
-startTrackingPosition();
+//startTrackingPosition();
 
