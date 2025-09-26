@@ -380,3 +380,43 @@ function getStepIconAndText(step) {
     };
 }
 
+let userMarker = null;
+let watchId = null;
+
+function startTrackingPosition() {
+    if (watchId) return; // già attivo
+    watchId = navigator.geolocation.watchPosition(
+        pos => {
+            const lat = pos.coords.latitude;
+            const lon = pos.coords.longitude;
+
+            // Aggiorna o crea il marker della posizione utente
+            if (userMarker) {
+                userMarker.setLatLng([lat, lon]);
+            } else {
+                userMarker = L.marker([lat, lon], {icon: L.icon({iconUrl: 'https://cdn-icons-png.flaticon.com/512/684/684908.png', iconSize: [32,32]})}).addTo(map);
+            }
+            // Centra la mappa sulla posizione attuale (opzionale)
+            map.setView([lat, lon]);
+        },
+        err => {
+            alert("Impossibile ottenere la posizione in tempo reale.");
+        },
+        { enableHighAccuracy: true, maximumAge: 1000 }
+    );
+}
+
+function stopTrackingPosition() {
+    if (watchId) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+        if (userMarker) {
+            map.removeLayer(userMarker);
+            userMarker = null;
+        }
+    }
+}
+
+// Avvia il tracking quando la pagina viene caricata
+startTrackingPosition();
+
