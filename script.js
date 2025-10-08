@@ -5,9 +5,13 @@ const useLocationBtn = document.getElementById('useLocation');
 
 //BLE
 let device, server, service;
-let characteristics = {};
+let characteristicsRx = null;
 let isConnected = false;
-const SERVICE_UUID = '0000abcd-0000-1000-8000-00805f9b34fb';
+
+
+const SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+const CHARACTERISTIC_UUID_RX = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+const CHARACTERISTIC_UUID_TX = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
 const CHAR_UUIDS = {
   icon: '0000a001-0000-1000-8000-00805f9b34fb',
   distance: '0000a002-0000-1000-8000-00805f9b34fb',
@@ -15,6 +19,7 @@ const CHAR_UUIDS = {
   total_km: '0000a004-0000-1000-8000-00805f9b34fb'
 };
 
+let currentStepIndex = 0;
 let currentPoint = null;
 let startCoords = null;
 let endCoords = null;
@@ -24,6 +29,7 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 }).addTo(map);
 
 let routeLayer = null;
+
 
 
 form.addEventListener('submit', async (e) => {
@@ -258,7 +264,7 @@ function decodePolyline(encoded) {
 async function connectBLE() {
   try {
     device = await navigator.bluetooth.requestDevice({
-      filters: [{ namePrefix: 'MotoNav' }],
+      filters: [{ namePrefix: 'Chronos ESP32' }],
       optionalServices: [SERVICE_UUID]
     });
 
@@ -266,12 +272,10 @@ async function connectBLE() {
 
     server = await device.gatt.connect();
     service = await server.getPrimaryService(SERVICE_UUID);
-
-    for (const [key, uuid] of Object.entries(CHAR_UUIDS)) {
-      characteristics[key] = await service.getCharacteristic(uuid);
-    }
+    characteristicsRx = await service.getCharacteristic(CHARACTERISTIC_UUID_RX);
 
     isConnected = true;
+    updateStatusUI();
     console.log('✅ Dispositivo connesso');
   } catch (error) {
     console.error('❌ Errore di connessione:', error);
@@ -339,23 +343,25 @@ function showScanningIndicator(active) {
   indicator.textContent = active ? '🔍 Cercando dispositivi BLE...' : '';
 }
 
-async function startBLEScan() {
+async function sendBLEMessage(message) {
+  if (!bleCharacteristic || !isConnected) return;
+
+  const encoder = new TextEncoder();
+  const data = encoder.encode(message);
   try {
-    console.log('🔍 Scansione BLE avviata...');
-    showScanningIndicator(true); // attiva spinner o messaggio
-
-    const device = await navigator.bluetooth.requestDevice({
-      filters: [{ namePrefix: 'MotoNav' }],
-      optionalServices: ['0000abcd-0000-1000-8000-00805f9b34fb']
-    });
-
-    console.log('📡 Dispositivo trovato:', device.name);
-    showScanningIndicator(false); // disattiva spinner
-
-    // continua con la connessione...
+    await bleCharacteristic.writeValue(data);
+    console.log('📨 Inviato via BLE:', message);
   } catch (error) {
-    console.warn('❌ Scansione annullata o fallita:', error);
-    showScanningIndicator(false);
+    console.error('❌ Errore invio BLE:', error);
+  }
+}
+
+function disconnectBLE() {
+  if (bleDevice && bleDevice.gatt.connected) {
+    bleDevice.gatt.disconnect();
+    isConnected = false;
+    updateStatusUI();
+    console.log('🔌 Dispositivo BLE disconnesso');
   }
 }
 
@@ -379,7 +385,7 @@ function updateLocation(lat, lon) {
                fillColor: 'red',
                fillOpacity: 1
            }).addTo(map);
-
+    checkTurnByTurn(lat, lon);
 }
 
 useLocationBtn.addEventListener('click', () => {
@@ -392,7 +398,50 @@ useLocationBtn.addEventListener('click', () => {
     });
 });
 
+function getDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371e3; // raggio della Terra in metri
+    const toRad = x => x * Math.PI / 180;
 
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+
+    const a = Math.sin(dLat / 2) ** 2 +
+              Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+              Math.sin(dLon / 2) ** 2;
+
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+}
+
+function checkTurnByTurn(lat, lon) {
+    if (!steps || currentStepIndex >= steps.length) return;
+
+    const step = steps[currentStepIndex];
+    const [stepLon, stepLat] = step.location;
+    const distance = getDistance(lat, lon, stepLat, stepLon);
+
+      /*messaggio da inviare al waveshare....da aggiornare*/
+        const payload = {
+          type: "instruction",
+          step: currentStepIndex,
+          text: step.instruction,
+          lat: lat,
+          lon: lon
+        };
+        sendBLEMessage(JSON.stringify(payload));
+
+    if (distance < 20) { // entro 20 metri dalla manovra
+        showInstruction(step.instruction);
+        currentStepIndex++;
+    }
+
+
+}
+
+function showInstruction(text) {
+    const resultsDiv = document.getElementById('results');
+    resultsDiv.innerHTML = `<div class="instruction">${text}</div>`;
+}
 /*function startTrackingPosition() {
     if (watchId) return; // già attivo
     watchId = navigator.geolocation.watchPosition(
