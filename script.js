@@ -25,6 +25,7 @@ let navigationState = {
 let currentPoint = null;
 let startCoords = null;
 let endCoords = null;
+let waypoints = [];
 let map = L.map('map').setView([41.9028, 12.4964], 13);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap'
@@ -51,37 +52,37 @@ const chronosIconMap = {
 
 // Icone visual per UI
 const maneuverIcons = {
-0: "0.png",//- Turn left
-1: "1.png",//- Turn right
-2: "2.png",//- Turn sharp left
-3: "3.png",//- Turn sharp right
-4: "4.png",//- Turn slight left
-5: "5.png",//- Turn slight right
-6: "6.png",//- Continue
-7: "7.png",//- Enter roundabout
-8: "8.png",//- Exit roundabout
-9: "9.png",//- U-turn
-10: "10.png",//- Finish
-11: "11.png",//- Depart
-12: "12.png",//- Keep left
-13: "13.png",//- Keep right
-14: "14.png"//- Unknown
+    0: "0.png",//- Turn left
+    1: "1.png",//- Turn right
+    2: "2.png",//- Turn sharp left
+    3: "3.png",//- Turn sharp right
+    4: "4.png",//- Turn slight left
+    5: "5.png",//- Turn slight right
+    6: "6.png",//- Continue
+    7: "7.png",//- Enter roundabout
+    8: "8.png",//- Exit roundabout
+    9: "9.png",//- U-turn
+    10: "10.png",//- Finish
+    11: "11.png",//- Depart
+    12: "12.png",//- Keep left
+    13: "13.png",//- Keep right
+    14: "14.png"//- Unknown
 };
 
 /*****Gestione stato BLE*****/
 function updateBLEStatus(status, scanning = false, deviceInfo = null) {
     bleState.isScanning = scanning;
     bleState.isConnected = status === 'connected';
-    
+
     const container = document.getElementById('ble-container');
     const statusDot = document.getElementById('status-dot');
     const statusText = document.getElementById('ble-status-text');
     const deviceInfoEl = document.getElementById('ble-device-info');
     const retryBtn = document.getElementById('retry-scan');
-    
+
     container.classList.remove('ble-connected', 'ble-disconnected', 'ble-scanning');
     statusDot.classList.remove('dot-connected', 'dot-disconnected', 'dot-scanning');
-    
+
     if (scanning) {
         container.classList.add('ble-scanning');
         statusDot.classList.add('dot-scanning');
@@ -107,23 +108,23 @@ function updateBLEStatus(status, scanning = false, deviceInfo = null) {
     }
 }
 
-window.showScanningIndicator = function(active) {
+window.showScanningIndicator = function (active) {
     if (active) {
         updateBLEStatus('scanning', true);
     }
 };
 
-window.onBLEConnected = function(deviceName, deviceAddress) {
+window.onBLEConnected = function (deviceName, deviceAddress) {
     console.log('✅ BLE Connesso:', deviceName, deviceAddress);
     updateBLEStatus('connected', false, { name: deviceName, address: deviceAddress });
 };
 
-window.onDisconnected = function() {
+window.onDisconnected = function () {
     console.log('⚠️ BLE Disconnesso');
     updateBLEStatus('disconnected', false);
 };
 
-window.updateStatusUI = function(message) {
+window.updateStatusUI = function (message) {
     if (message && message.includes('Connesso')) {
         updateBLEStatus('connected', false);
     } else {
@@ -131,7 +132,7 @@ window.updateStatusUI = function(message) {
     }
 };
 
-window.toggleRetryButton = function(enabled) {
+window.toggleRetryButton = function (enabled) {
     document.getElementById('retry-scan').disabled = !enabled;
 };
 
@@ -144,7 +145,19 @@ form.addEventListener('submit', async (e) => {
 
     try {
         if (!startCoords || !endCoords) throw new Error("Seleziona partenza e arrivo dai suggerimenti.");
-        const route = await getRoute(startCoords, endCoords, profile);
+
+        const waypointInputs = document.querySelectorAll('.waypoint-input');
+        waypoints = [];
+
+        waypointInputs.forEach(input => {
+            const lat = parseFloat(input.dataset.lat);
+            const lng = parseFloat(input.dataset.lng);
+            if (!isNaN(lat) && !isNaN(lng)) {
+                waypoints.push([lng, lat]); // ORS usa [lon, lat]
+            }
+        });
+
+        const route = await getRoute(startCoords, endCoords, profile, waypoints);
         displayRoute(route);
         startNavigation(route);  // ⭐ Prepara ma non avvia
     } catch (err) {
@@ -220,6 +233,47 @@ function setupAutocomplete(inputId, suggestionsId, setCoordsCallback) {
     });
 }
 
+let waypointIndex = 0;
+
+document.getElementById('add-waypoint').addEventListener('click', () => {
+    const container = document.getElementById('waypoints-container');
+
+    const group = document.createElement('div');
+    group.className = 'input-group';
+
+    const label = document.createElement('label');
+    label.className = 'input-label';
+    label.textContent = `🛑 Tappa ${waypointIndex + 1}`;
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'Cerca tappa...';
+    input.className = 'waypoint-input';
+    input.id = `waypoint-${waypointIndex}`;
+    input.required = true;
+
+    const suggestions = document.createElement('ul');
+    suggestions.className = 'suggestions';
+    suggestions.id = `waypointSuggestions-${waypointIndex}`;
+
+    group.appendChild(label);
+    group.appendChild(input);
+    group.appendChild(suggestions);
+    container.appendChild(group);
+
+    // Callback per salvare le coordinate nel dataset
+    const setCoords = (coords) => {
+        input.dataset.lat = coords[1]; // ORS usa [lon, lat]
+        input.dataset.lng = coords[0];
+    };
+
+    setupAutocomplete(input.id, suggestions.id, setCoords);
+
+    waypointIndex++;
+});
+
+
+
 setupAutocomplete('start', 'startSuggestions', coords => startCoords = coords);
 setupAutocomplete('end', 'endSuggestions', coords => endCoords = coords);
 
@@ -250,8 +304,12 @@ document.getElementById('stop-navigation').addEventListener('click', () => {
 });
 
 /*****Calcolo percorso****/
-async function getRoute(start, end, profile) {
+async function getRoute(start, end, profile, waypoints = []) {
     const preference = document.getElementById('preference').value;
+
+    // Costruisci l'array completo delle coordinate
+    const coordinates = [start, ...waypoints, end];
+
     const res = await fetch(`https://api.openrouteservice.org/v2/directions/${profile}`, {
         method: 'POST',
         headers: {
@@ -259,7 +317,7 @@ async function getRoute(start, end, profile) {
             'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-            coordinates: [start, end],
+            coordinates: coordinates,
             instructions: true,
             language: "it",
             maneuvers: true,
@@ -268,22 +326,23 @@ async function getRoute(start, end, profile) {
             attributes: ["avgspeed", "detourfactor", "percentage"]
         })
     });
+
     return await res.json();
 }
 
 function startNavigation(data) {
     const route = data.routes[0];
     const segment = route.segments?.[0];
-    
+
     navigationState.currentStepIndex = 0;
     navigationState.steps = segment?.steps || [];
     navigationState.routeGeometry = decodePolyline(route.geometry);
     navigationState.totalDistance = route.summary.distance;
     navigationState.totalDuration = route.summary.duration;
     navigationState.remainingDistance = route.summary.distance;
-    
+
     //document.getElementById('navigation-panel').classList.add('active');
-    
+
     /*if (navigationState.steps.length > 0) {
         updateNavigationDisplay();
     }*/
@@ -296,10 +355,10 @@ function displayRoute(data) {
 
     const duration = (route.summary.duration / 60).toFixed(1);
     const distance = (route.summary.distance / 1000).toFixed(2);
-    
+
     let stepsHtml = '<p>Nessuna istruzione disponibile.</p>';
     if (Array.isArray(steps) && steps.length > 0) {
-    console.log(steps);
+        console.log(steps);
         stepsHtml = `
     <table>
       <thead>
@@ -321,7 +380,7 @@ function displayRoute(data) {
               <td>${step.instruction}</td>
               <td>${step.distance.toFixed(0)} m</td>
               <td>${step.duration.toFixed(0)} sec</td>
-              <td>${(step.exit_number == null)?'':step.exit_number}</td>
+              <td>${(step.exit_number == null) ? '' : step.exit_number}</td>
             </tr>`;
         }).join('')}
       </tbody>
@@ -340,26 +399,30 @@ function displayRoute(data) {
     window.stepMarkers = [];
 
     const geometry = decodePolyline(route.geometry);
+    const usedIndexes = new Set();
+
     steps.forEach(step => {
-        const startIndex = step.way_points?.[0];
-        if (startIndex == null || !geometry[startIndex]) return;
+        const [startIndex, endIndex] = step.way_points || [];
 
-        const position = geometry[startIndex];
-        //const chronosIcon = chronosIconMap[step.type] || 0;
-        const icon = maneuverIcons[step.type];
+        [startIndex, endIndex].forEach(index => {
+            
+            if (index == null || usedIndexes.has(index) || !geometry[index]) return;
 
-        const marker = L.marker(position).addTo(map).bindPopup(`
-            <div style="font-size:1.2em;text-align:center;">
-            <img src="${icon}" width="48" height="48" alt="Icona" />
-            </div>
+            usedIndexes.add(index);
+            const position = geometry[index];
+            const icon = maneuverIcons[step.type];
 
-            <div style="font-size:0.9em;margin-top:4px;">
-                <strong>${step.instruction}</strong><br />
-                ${step.distance.toFixed(0)} m — ${step.duration.toFixed(0)} sec
-            </div>
-        `);
-
-        window.stepMarkers.push(marker);
+            const marker = L.marker(position).addTo(map).bindPopup(`
+      <div style="font-size:1.2em;text-align:center;">
+        <img src="${icon}" width="48" height="48" alt="Icona" />
+      </div>
+      <div style="font-size:0.9em;margin-top:4px;">
+        <strong>${step.instruction}</strong><br />
+        ${step.distance.toFixed(0)} m — ${step.duration.toFixed(0)} sec
+      </div>
+    `);
+            window.stepMarkers.push(marker);
+        });
     });
 
     const coords = decodePolyline(route.geometry);
@@ -368,9 +431,23 @@ function displayRoute(data) {
     map.fitBounds(routeLayer.getBounds());
 
     document.getElementById('navigation-controls').style.display = 'block';
-        document.getElementById('start-navigation').style.display = 'inline-block';
-        document.getElementById('stop-navigation').style.display = 'none';
+    document.getElementById('start-navigation').style.display = 'inline-block';
+    document.getElementById('stop-navigation').style.display = 'none';
+
+    
 }
+
+/*visualizza risultati*/
+document.getElementById('toggle-results').addEventListener('click', () => {
+  const results = document.getElementById('results');
+
+  if (results.style.display === 'none' || results.style.display === '') {
+    results.style.display = 'block';
+  } else {
+    results.style.display = 'none';
+  }
+});
+
 
 function updateNavigationDisplay() {
     if (!navigationState.isNavigating || navigationState.currentStepIndex >= navigationState.steps.length) {
@@ -379,9 +456,9 @@ function updateNavigationDisplay() {
         sendChronosNavigationData(null); // Segnala fine navigazione
         return;
     }
-    
+
     const currentStep = navigationState.steps[navigationState.currentStepIndex];
-   // const chronosIcon = chronosIconMap[currentStep.type] || 0;
+    // const chronosIcon = chronosIconMap[currentStep.type] || 0;
     const icon = maneuverIcons[currentStep.type];
     document.getElementById('nav-icon').innerHTML = `<img src="${icon}" width="120" height="120" />`;
     document.getElementById('nav-instruction').textContent = currentStep.instruction;
@@ -394,9 +471,9 @@ function updateNavigationDisplay() {
         .slice(navigationState.currentStepIndex)
         .reduce((sum, step) => sum + step.duration, 0);
     document.getElementById('nav-total-time').textContent = `${getArrivalTime(remainingDuration).duration}`;
-    document.getElementById('nav-eta').textContent=`${getArrivalTime(remainingDuration).arrivalTime}`;
+    document.getElementById('nav-eta').textContent = `${getArrivalTime(remainingDuration).arrivalTime}`;
     const stepProgress = Math.max(0, Math.min(100, 100 - (currentStep.distance / currentStep.distance * 100)));
-    const exit_number = (currentStep.exit_number == null) ? '':currentStep.exit_number;
+    const exit_number = (currentStep.exit_number == null) ? '' : currentStep.exit_number;
     document.getElementById('nav-progress').style.width = `${stepProgress}%`;
 
 
@@ -451,7 +528,7 @@ function updateLocation(lat, lon) {
 
     const coords = [lat, lon];
     map.setView(coords, 16);
-    
+
     if (currentPoint) {
         map.removeLayer(currentPoint);
     }
@@ -462,7 +539,7 @@ function updateLocation(lat, lon) {
         fillColor: 'red',
         fillOpacity: 1
     }).addTo(map);
-    
+
     checkTurnByTurn(lat, lon);
 }
 
@@ -474,8 +551,8 @@ function getDistance(lat1, lon1, lat2, lon2) {
     const dLon = toRad(lon2 - lon1);
 
     const a = Math.sin(dLat / 2) ** 2 +
-              Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-              Math.sin(dLon / 2) ** 2;
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+        Math.sin(dLon / 2) ** 2;
 
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
@@ -488,26 +565,26 @@ function checkTurnByTurn(lat, lon) {
 
     const currentStep = navigationState.steps[navigationState.currentStepIndex];
     const stepWaypoint = currentStep.way_points?.[0];
-    
+
     if (stepWaypoint == null || !navigationState.routeGeometry[stepWaypoint]) {
         return;
     }
-    
+
     const [stepLat, stepLon] = navigationState.routeGeometry[stepWaypoint];
     const distanceToStep = getDistance(lat, lon, stepLat, stepLon);
-    
+
     currentStep.distance = Math.max(0, distanceToStep);
-    
+
     navigationState.remainingDistance = navigationState.steps
         .slice(navigationState.currentStepIndex)
         .reduce((sum, step) => sum + step.distance, 0);
-    
+
     updateNavigationDisplay();
-    
+
     if (distanceToStep < 15 && navigationState.currentStepIndex < navigationState.steps.length - 1) {
         navigationState.currentStepIndex++;
         updateNavigationDisplay();
-        
+
         const rows = document.querySelectorAll('#results tbody tr');
         rows.forEach((row, idx) => {
             if (idx === navigationState.currentStepIndex) {
@@ -536,12 +613,12 @@ function sendChronosNavigationData(navData) {
             AndroidBLE.sendChronosNavigation(JSON.stringify({ active: false }));
         } else {
             //carico l'icona nel BLEManager
-             AndroidBLE.prepareIcon(navData.icon+'.png');
+            AndroidBLE.prepareIcon(navData.icon + '.png');
 
             //invio i dati di navigazione
             AndroidBLE.sendChronosNavigation(JSON.stringify({
                 active: true,
-                icon:navData.icon,
+                icon: navData.icon,
                 stepDistance: navData.stepDistance,
                 totalDistance: navData.totalDistance,
                 time: navData.time,
@@ -550,9 +627,9 @@ function sendChronosNavigationData(navData) {
                 exit_number: navData.exit_number
             }));
             setTimeout(() => {
-             //invio l'icona
-             AndroidBLE.sendNavigationIcon();
-        }, 200); // oppure 100ms per sicurezza
+                //invio l'icona
+                AndroidBLE.sendNavigationIcon();
+            }, 200); // oppure 100ms per sicurezza
 
 
         }
@@ -562,7 +639,7 @@ function sendChronosNavigationData(navData) {
 }
 
 //visulizzazione messaggi da esp32
-window.showESP32Message = function(msg) {
+window.showESP32Message = function (msg) {
     const container = document.getElementById('esp32-messages');
     const log = document.getElementById('esp32-log');
 
@@ -600,94 +677,94 @@ window.showESP32Message = function(msg) {
 };
 
 function canvasToByteArray(canvas) {
-  const ctx = canvas.getContext('2d');
-  const imageData = ctx.getImageData(0, 0, 48, 48).data;
-  const byteArray = new Uint8Array((48 * 48) / 8);
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.getImageData(0, 0, 48, 48).data;
+    const byteArray = new Uint8Array((48 * 48) / 8);
 
-  for (let y = 0; y < 48; y++) {
-    for (let x = 0; x < 48; x++) {
-      const i = (y * 48 + x) * 4;
-      const r = imageData[i];
-      const g = imageData[i + 1];
-      const b = imageData[i + 2];
-      const a = imageData[i + 3];
+    for (let y = 0; y < 48; y++) {
+        for (let x = 0; x < 48; x++) {
+            const i = (y * 48 + x) * 4;
+            const r = imageData[i];
+            const g = imageData[i + 1];
+            const b = imageData[i + 2];
+            const a = imageData[i + 3];
 
-      const isDark = a > 128 && (r + g + b) < 384;
-      const bitIndex = y * 48 + x;
-      const byteIndex = Math.floor(bitIndex / 8);
-      const bitPos = 7 - (x % 8);
+            const isDark = a > 128 && (r + g + b) < 384;
+            const bitIndex = y * 48 + x;
+            const byteIndex = Math.floor(bitIndex / 8);
+            const bitPos = 7 - (x % 8);
 
-      if (isDark) {
-        byteArray[byteIndex] |= (1 << bitPos);
-      }
+            if (isDark) {
+                byteArray[byteIndex] |= (1 << bitPos);
+            }
+        }
     }
-  }
 
-  return byteArray;
+    return byteArray;
 }
 
 
 function loadPngToByteArray(path, callback) {
-  const img = new Image();
-  img.crossOrigin = 'anonymous'; // utile se il file è su un server esterno
+    const img = new Image();
+    img.crossOrigin = 'anonymous'; // utile se il file è su un server esterno
 
-  img.onload = function () {
-    const canvas = document.createElement('canvas');
-    canvas.width = 48;
-    canvas.height = 48;
-    const ctx = canvas.getContext('2d');
+    img.onload = function () {
+        const canvas = document.createElement('canvas');
+        canvas.width = 48;
+        canvas.height = 48;
+        const ctx = canvas.getContext('2d');
 
-    // Disegna l'immagine ridimensionata su canvas 48x48
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        // Disegna l'immagine ridimensionata su canvas 48x48
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-    const previewCanvas = document.getElementById('preview-icon');
-    const previewCtx = previewCanvas.getContext('2d');
-    previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
-    previewCtx.drawImage(img, 0, 0, previewCanvas.width, previewCanvas.height);
+        const previewCanvas = document.getElementById('preview-icon');
+        const previewCtx = previewCanvas.getContext('2d');
+        previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+        previewCtx.drawImage(img, 0, 0, previewCanvas.width, previewCanvas.height);
 
-    // Converte in byte array binario
-    const byteArray = canvasToByteArray(canvas);
+        // Converte in byte array binario
+        const byteArray = canvasToByteArray(canvas);
 
-    // Restituisce il risultato tramite callback
-    callback(byteArray);
-  };
+        // Restituisce il risultato tramite callback
+        callback(byteArray);
+    };
 
-  img.src = path;
+    img.src = path;
 }
 
 function loadAndSendIcon(filename) {
-  fetch(filename)
-    .then(response => response.blob())
-    .then(blob => createImageBitmap(blob))
-    .then(bitmap => {
-      const canvas = document.getElementById('preview-icon');
-      const ctx = canvas.getContext('2d');
+    fetch(filename)
+        .then(response => response.blob())
+        .then(blob => createImageBitmap(blob))
+        .then(bitmap => {
+            const canvas = document.getElementById('preview-icon');
+            const ctx = canvas.getContext('2d');
 
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
 
-      const byteArray = canvasToByteArray(canvas);
+            const byteArray = canvasToByteArray(canvas);
 
-      // Invia a Kotlin via WebView bridge
-      if (window.Android && window.Android.sendBytes) {
-        window.Android.sendBytes(Array.from(byteArray));
-      }
-    })
-    .catch(err => console.error("❌ Errore nel caricamento immagine:", err));
+            // Invia a Kotlin via WebView bridge
+            if (window.Android && window.Android.sendBytes) {
+                window.Android.sendBytes(Array.from(byteArray));
+            }
+        })
+        .catch(err => console.error("❌ Errore nel caricamento immagine:", err));
 }
 
 function getArrivalTime(seconds) {
-  const now = new Date();
-  const arrival = new Date(now.getTime() + seconds * 1000);
+    const now = new Date();
+    const arrival = new Date(now.getTime() + seconds * 1000);
 
-  const hrs = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
 
-  const pad = (num) => String(num).padStart(2, '0');
+    const pad = (num) => String(num).padStart(2, '0');
 
-  const duration = `${pad(hrs)}h ${pad(mins)}m`;
-  const arrivalTime = `${pad(arrival.getHours())}:${pad(arrival.getMinutes())}`;
+    const duration = `${pad(hrs)}h ${pad(mins)}m`;
+    const arrivalTime = `${pad(arrival.getHours())}:${pad(arrival.getMinutes())}`;
 
-  return {duration,arrivalTime};
+    return { duration, arrivalTime };
 }
