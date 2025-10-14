@@ -63,3 +63,110 @@ thead {
   background-color: #f9f9f9;
 }
 
+@keyframes blink {
+  0% { opacity: 0.3; }
+  50% { opacity: 1; }
+  100% { opacity: 0.3; }
+}
+#ble-scan-status {
+  animation: blink 1s infinite;
+  color: #007bff;
+}
+
+.ble-container {
+      background: #f5f5f5;
+      padding: 15px;
+      margin: 10px 0;
+      border-radius: 8px;
+      border: 2px solid #ddd;
+    }
+    .ble-connected {
+      border-color: #4CAF50;
+      background: #e8f5e9;
+    }
+    .ble-disconnected {
+      border-color: #f44336;
+      background: #ffebee;
+    }
+    .ble-scanning {
+      border-color: #2196F3;
+      background: #e3f2fd;
+    }
+    .ble-status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 18px;
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+    .status-dot {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .dot-connected { background: #4CAF50; }
+    .dot-disconnected { background: #f44336; }
+    .dot-scanning {
+      background: #2196F3;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    .navigation-panel {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 20px;
+      margin: 15px 0;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      display: none;
+    }
+    .navigation-panel.active {
+      display: block;
+    }
+    .nav-instruction {
+      font-size: 24px;
+      font-weight: bold;
+      margin-bottom: 15px;
+      text-align: center;
+    }
+    .nav-distance {
+      font-size: 48px;
+      font-weight: bold;
+      text-align: center;
+      margin: 20px 0;
+    }
+    .nav-details {
+      display: flex;
+      justify-content: space-around;
+      margin-top: 15px;
+      font-size: 16px;
+    }
+    .nav-detail-item {
+      text-align: center;
+    }
+    .nav-detail-label {
+      opacity: 0.8;
+      font-size: 14px;
+    }
+    .maneuver-icon {
+      font-size: 64px;
+      text-align: center;
+      margin: 15px 0;
+    }
+    .progress-bar {
+      background: rgba(255,255,255,0.3);
+      height: 8px;
+      border-radius: 4px;
+      margin-top: 15px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      background: white;
+      height: 100%;
+      transition: width 0.3s ease;
+    }

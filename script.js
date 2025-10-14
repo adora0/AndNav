@@ -3,35 +3,141 @@ const form = document.getElementById('routeForm');
 const results = document.getElementById('results');
 const useLocationBtn = document.getElementById('useLocation');
 
-//BLE
-let device, server, service;
-let characteristicsRx = null;
-let isConnected = false;
-
-
-const SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
-const CHARACTERISTIC_UUID_RX = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
-const CHARACTERISTIC_UUID_TX = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
-const CHAR_UUIDS = {
-  icon: '0000a001-0000-1000-8000-00805f9b34fb',
-  distance: '0000a002-0000-1000-8000-00805f9b34fb',
-  eta: '0000a003-0000-1000-8000-00805f9b34fb',
-  total_km: '0000a004-0000-1000-8000-00805f9b34fb'
+// Stato BLE
+let bleState = {
+    isConnected: false,
+    isScanning: false,
+    deviceName: '',
+    deviceAddress: ''
 };
 
-let currentStepIndex = 0;
+// Stato navigazione
+let navigationState = {
+    isNavigating: false,
+    currentStepIndex: 0,
+    steps: [],
+    routeGeometry: [],
+    totalDistance: 0,
+    totalDuration: 0,
+    remainingDistance: 0
+};
+
 let currentPoint = null;
 let startCoords = null;
 let endCoords = null;
-let map = L.map('map').setView([41.9028, 12.4964], 13); // Roma
+let map = L.map('map').setView([41.9028, 12.4964], 13);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap'
 }).addTo(map);
 
 let routeLayer = null;
 
+// Mappa manovre OpenRouteService -> Chronos icons
+const chronosIconMap = {
+    0: 0,   // turn left
+    1: 1,   // turn right
+    2: 1,   // Turn sharp left
+    3: 2,   // Turn sharp right
+    4: 2,   // turn left
+    5: 3,   // sharp right
+    6: 4,   // sharp left
+    7: 5,   // roundabout
+    8: 6,   // exit roundabout
+    9: 7,   // arrive
+    10: 8,  // depart
+    11: 9,  // ferry
+    12: 0   // continue
+};
 
+// Icone visual per UI
+const maneuverIcons = {
+0: "0.png",//- Turn left
+1: "1.png",//- Turn right
+2: "2.png",//- Turn sharp left
+3: "3.png",//- Turn sharp right
+4: "4.png",//- Turn slight left
+5: "5.png",//- Turn slight right
+6: "6.png",//- Continue
+7: "7.png",//- Enter roundabout
+8: "8.png",//- Exit roundabout
+9: "9.png",//- U-turn
+10: "10.png",//- Finish
+11: "11.png",//- Depart
+12: "12.png",//- Keep left
+13: "13.png",//- Keep right
+14: "14.png"//- Unknown
+};
 
+/*****Gestione stato BLE*****/
+function updateBLEStatus(status, scanning = false, deviceInfo = null) {
+    bleState.isScanning = scanning;
+    bleState.isConnected = status === 'connected';
+    
+    const container = document.getElementById('ble-container');
+    const statusDot = document.getElementById('status-dot');
+    const statusText = document.getElementById('ble-status-text');
+    const deviceInfoEl = document.getElementById('ble-device-info');
+    const retryBtn = document.getElementById('retry-scan');
+    
+    container.classList.remove('ble-connected', 'ble-disconnected', 'ble-scanning');
+    statusDot.classList.remove('dot-connected', 'dot-disconnected', 'dot-scanning');
+    
+    if (scanning) {
+        container.classList.add('ble-scanning');
+        statusDot.classList.add('dot-scanning');
+        statusText.textContent = '🔍 Cercando ESP32-S3...';
+        deviceInfoEl.textContent = '';
+        retryBtn.disabled = true;
+    } else if (status === 'connected') {
+        container.classList.add('ble-connected');
+        statusDot.classList.add('dot-connected');
+        statusText.textContent = '✅ Connesso a ESP32-S3';
+        if (deviceInfo) {
+            bleState.deviceName = deviceInfo.name || 'ESP32-S3';
+            bleState.deviceAddress = deviceInfo.address || '';
+            deviceInfoEl.textContent = `Dispositivo: ${bleState.deviceName} (${bleState.deviceAddress})`;
+        }
+        retryBtn.disabled = true;
+    } else {
+        container.classList.add('ble-disconnected');
+        statusDot.classList.add('dot-disconnected');
+        statusText.textContent = '❌ Dispositivo disconnesso';
+        deviceInfoEl.textContent = 'Premi "Riconnetti BLE" per cercare il dispositivo';
+        retryBtn.disabled = false;
+    }
+}
+
+window.showScanningIndicator = function(active) {
+    if (active) {
+        updateBLEStatus('scanning', true);
+    }
+};
+
+window.onBLEConnected = function(deviceName, deviceAddress) {
+    console.log('✅ BLE Connesso:', deviceName, deviceAddress);
+    updateBLEStatus('connected', false, { name: deviceName, address: deviceAddress });
+};
+
+window.onDisconnected = function() {
+    console.log('⚠️ BLE Disconnesso');
+    updateBLEStatus('disconnected', false);
+};
+
+window.updateStatusUI = function(message) {
+    if (message && message.includes('Connesso')) {
+        updateBLEStatus('connected', false);
+    } else {
+        updateBLEStatus('disconnected', false);
+    }
+};
+
+window.toggleRetryButton = function(enabled) {
+    document.getElementById('retry-scan').disabled = !enabled;
+};
+
+updateBLEStatus('disconnected', false);
+
+/*****Gestione form******/
 form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const profile = document.getElementById('profile').value;
@@ -40,6 +146,7 @@ form.addEventListener('submit', async (e) => {
         if (!startCoords || !endCoords) throw new Error("Seleziona partenza e arrivo dai suggerimenti.");
         const route = await getRoute(startCoords, endCoords, profile);
         displayRoute(route);
+        startNavigation(route);  // ⭐ Prepara ma non avvia
     } catch (err) {
         console.log(err);
         results.innerHTML = `<p style="color:red;">Errore: ${err.message}</p>`;
@@ -50,27 +157,31 @@ useLocationBtn.addEventListener('click', () => {
     navigator.geolocation.getCurrentPosition((pos) => {
         const lat = pos.coords.latitude;
         const lon = pos.coords.longitude;
-        updateLocation(lat, lon); // usa la funzione globale
+        updateLocation(lat, lon);
     }, () => {
         alert("Impossibile ottenere la posizione.");
     });
 });
 
+document.getElementById('retry-scan').addEventListener('click', () => {
+    updateBLEStatus('scanning', true);
+    if (window.AndroidBLE && typeof AndroidBLE.retryScan === 'function') {
+        AndroidBLE.retryScan();
+    } else {
+        console.warn('⚠️ Interfaccia AndroidBLE non disponibile');
+        setTimeout(() => updateBLEStatus('disconnected', false), 2000);
+    }
+});
 
 async function fetchSuggestions(query) {
     const res = await fetch(`https://api.openrouteservice.org/geocode/autocomplete?api_key=${apiKey}&text=${encodeURIComponent(query)}&boundary.country=IT`);
     const data = await res.json();
-
-    if (!data || !data.features || data.features.length === 0) {
-        return []; // Nessun suggerimento disponibile
-    }
-
+    if (!data || !data.features || data.features.length === 0) return [];
     return data.features.map(f => ({
         label: f.properties.label,
         coordinates: f.geometry.coordinates
     }));
 }
-
 
 function setupAutocomplete(inputId, suggestionsId, setCoordsCallback) {
     const input = document.getElementById(inputId);
@@ -90,7 +201,6 @@ function setupAutocomplete(inputId, suggestionsId, setCoordsCallback) {
         }
 
         suggestionsList.innerHTML = '';
-
         suggestions.forEach(s => {
             const li = document.createElement('li');
             li.textContent = s.label;
@@ -113,6 +223,33 @@ function setupAutocomplete(inputId, suggestionsId, setCoordsCallback) {
 setupAutocomplete('start', 'startSuggestions', coords => startCoords = coords);
 setupAutocomplete('end', 'endSuggestions', coords => endCoords = coords);
 
+// Listener pulsanti navigazione
+document.getElementById('start-navigation').addEventListener('click', () => {
+    if (navigationState.steps.length > 0) {
+        navigationState.isNavigating = true;
+        navigationState.currentStepIndex = 0;
+
+        document.getElementById('navigation-panel').classList.add('active');
+        document.getElementById('start-navigation').style.display = 'none';
+        document.getElementById('stop-navigation').style.display = 'inline-block';
+
+        updateNavigationDisplay();
+        console.log('🚀 Navigazione avviata');
+    }
+});
+
+document.getElementById('stop-navigation').addEventListener('click', () => {
+    navigationState.isNavigating = false;
+
+    document.getElementById('navigation-panel').classList.remove('active');
+    document.getElementById('start-navigation').style.display = 'inline-block';
+    document.getElementById('stop-navigation').style.display = 'none';
+
+    sendChronosNavigationData(null); // Segnala fine navigazione
+    console.log('⏹️ Navigazione fermata');
+});
+
+/*****Calcolo percorso****/
 async function getRoute(start, end, profile) {
     const preference = document.getElementById('preference').value;
     const res = await fetch(`https://api.openrouteservice.org/v2/directions/${profile}`, {
@@ -124,14 +261,32 @@ async function getRoute(start, end, profile) {
         body: JSON.stringify({
             coordinates: [start, end],
             instructions: true,
-            language: "IT",
-            maneuvers:true,
-            roundabout_exits:true,
+            language: "it",
+            maneuvers: true,
+            roundabout_exits: true,
             preference: preference,
-            attributes:["avgspeed","detourfactor","percentage"]
+            attributes: ["avgspeed", "detourfactor", "percentage"]
         })
     });
     return await res.json();
+}
+
+function startNavigation(data) {
+    const route = data.routes[0];
+    const segment = route.segments?.[0];
+    
+    navigationState.currentStepIndex = 0;
+    navigationState.steps = segment?.steps || [];
+    navigationState.routeGeometry = decodePolyline(route.geometry);
+    navigationState.totalDistance = route.summary.distance;
+    navigationState.totalDuration = route.summary.duration;
+    navigationState.remainingDistance = route.summary.distance;
+    
+    //document.getElementById('navigation-panel').classList.add('active');
+    
+    /*if (navigationState.steps.length > 0) {
+        updateNavigationDisplay();
+    }*/
 }
 
 function displayRoute(data) {
@@ -141,9 +296,10 @@ function displayRoute(data) {
 
     const duration = (route.summary.duration / 60).toFixed(1);
     const distance = (route.summary.distance / 1000).toFixed(2);
-    console.log(data);
+    
     let stepsHtml = '<p>Nessuna istruzione disponibile.</p>';
     if (Array.isArray(steps) && steps.length > 0) {
+    console.log(steps);
         stepsHtml = `
     <table>
       <thead>
@@ -152,19 +308,20 @@ function displayRoute(data) {
           <th>Istruzione</th>
           <th>Distanza</th>
           <th>Durata</th>
-          <th>Uscita rotonda</th>
+          <th>Uscita rotatoria</th>
         </tr>
       </thead>
       <tbody>
-        ${steps.map(step => {
-            //const { icon, text } = getStepIconAndText(step);
+        ${steps.map((step, idx) => {
+            //const chronosIcon = chronosIconMap[step.type] || 0;
+            const icon = maneuverIcons[step.type];
             return `
-            <tr>
-              <td style="font-size: 1.2em;">${step.type}</td>
+            <tr style="${idx === navigationState.currentStepIndex ? 'background: #e3f2fd; font-weight: bold;' : ''}">
+              <td><img src="${icon}" width="48" height="48" alt="Icona" /></td>
               <td>${step.instruction}</td>
               <td>${step.distance.toFixed(0)} m</td>
               <td>${step.duration.toFixed(0)} sec</td>
-               <td>${(step.type==7)? step.exit_number:''}</td>
+              <td>${(step.exit_number == null)?'':step.exit_number}</td>
             </tr>`;
         }).join('')}
       </tbody>
@@ -172,62 +329,88 @@ function displayRoute(data) {
     }
 
     results.innerHTML = `
-    <h2>Durata: ${duration} min</h2>
-    <h3>Distanza: ${distance} km</h3>
+    <h2>⏱️ Durata: ${duration} min</h2>
+    <h3>📍 Distanza: ${distance} km</h3>
     ${stepsHtml}
-  `
-    // Rimuovi marker precedenti se presenti
+    `;
+
     if (window.stepMarkers) {
         window.stepMarkers.forEach(m => map.removeLayer(m));
     }
     window.stepMarkers = [];
 
-    const geometry = decodePolyline(route.geometry); // array di [lat, lon]
-
+    const geometry = decodePolyline(route.geometry);
     steps.forEach(step => {
         const startIndex = step.way_points?.[0];
         if (startIndex == null || !geometry[startIndex]) return;
 
         const position = geometry[startIndex];
-        //const { icon, text } = getStepIconAndText(step);
+        //const chronosIcon = chronosIconMap[step.type] || 0;
+        const icon = maneuverIcons[step.type];
 
-        const popupId = `miniMap-${startIndex}`;
-        const popupContent = `
-  <div style="width:200px;height:150px;" id="${popupId}"></div>
-  <div style="font-size:0.9em;margin-top:4px;">
-    <strong>${step.type} ${step.instruction}</strong><br />
-    ${step.distance.toFixed(0)} m – ${step.duration.toFixed(0)} sec
-  </div>
-`;
+        const marker = L.marker(position).addTo(map).bindPopup(`
+            <div style="font-size:1.2em;text-align:center;">
+            <img src="${icon}" width="48" height="48" alt="Icona" />
+            </div>
 
-        const marker = L.marker(position).addTo(map).bindPopup(popupContent);
-        marker.on('popupopen', () => {
-            const miniMap = L.map(popupId, {
-                attributionControl: false,
-                zoomControl: false,
-                dragging: false,
-                scrollWheelZoom: false,
-                doubleClickZoom: false,
-                boxZoom: false,
-                keyboard: false,
-                tap: false
-            }).setView(position, 16);
-
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                interactive: false
-            }).addTo(miniMap);
-
-            const segmentCoords = geometry.slice(step.way_points[0], step.way_points[1] + 1);
-            L.polyline(segmentCoords, { color: 'red', weight: 4 }).addTo(miniMap);
-        });
+            <div style="font-size:0.9em;margin-top:4px;">
+                <strong>${step.instruction}</strong><br />
+                ${step.distance.toFixed(0)} m — ${step.duration.toFixed(0)} sec
+            </div>
+        `);
 
         window.stepMarkers.push(marker);
     });
 
     const coords = decodePolyline(route.geometry);
     if (routeLayer) map.removeLayer(routeLayer);
-    routeLayer = L.polyline(coords, { color: 'blue' }).addTo(map);
+    routeLayer = L.polyline(coords, { color: 'blue', weight: 5 }).addTo(map);
     map.fitBounds(routeLayer.getBounds());
+
+    document.getElementById('navigation-controls').style.display = 'block';
+        document.getElementById('start-navigation').style.display = 'inline-block';
+        document.getElementById('stop-navigation').style.display = 'none';
+}
+
+function updateNavigationDisplay() {
+    if (!navigationState.isNavigating || navigationState.currentStepIndex >= navigationState.steps.length) {
+        document.getElementById('nav-instruction').textContent = '🏁 Destinazione raggiunta!';
+        document.getElementById('nav-distance').textContent = '0 m';
+        sendChronosNavigationData(null); // Segnala fine navigazione
+        return;
+    }
+    
+    const currentStep = navigationState.steps[navigationState.currentStepIndex];
+   // const chronosIcon = chronosIconMap[currentStep.type] || 0;
+    const icon = maneuverIcons[currentStep.type];
+    document.getElementById('nav-icon').innerHTML = `<img src="${icon}" width="120" height="120" />`;
+    document.getElementById('nav-instruction').textContent = currentStep.instruction;
+    document.getElementById('nav-distance').textContent = `${currentStep.distance.toFixed(0)} m`;
+    document.getElementById('nav-next-distance').textContent = `${currentStep.distance.toFixed(0)} m`;
+    document.getElementById('nav-total-distance').textContent = `${(navigationState.remainingDistance / 1000).toFixed(2)} km`;
+
+
+    const remainingDuration = navigationState.steps
+        .slice(navigationState.currentStepIndex)
+        .reduce((sum, step) => sum + step.duration, 0);
+    document.getElementById('nav-total-time').textContent = `${getArrivalTime(remainingDuration).duration}`;
+    document.getElementById('nav-eta').textContent=`${getArrivalTime(remainingDuration).arrivalTime}`;
+    const stepProgress = Math.max(0, Math.min(100, 100 - (currentStep.distance / currentStep.distance * 100)));
+    const exit_number = (currentStep.exit_number == null) ? '':currentStep.exit_number;
+    document.getElementById('nav-progress').style.width = `${stepProgress}%`;
+
+
+    // Invia dati in formato Chronos
+    sendChronosNavigationData({
+        icon: currentStep.type,
+        stepDistance: Math.round(currentStep.distance),
+        instruction: currentStep.instruction,
+        progress: Math.round((navigationState.currentStepIndex / navigationState.steps.length) * 100),
+        totalDistance: document.getElementById('nav-total-distance').textContent,
+        time: document.getElementById('nav-total-time').textContent,
+        eta: document.getElementById('nav-eta').textContent,
+        exit_number: exit_number
+    });
 }
 
 function decodePolyline(encoded) {
@@ -260,146 +443,31 @@ function decodePolyline(encoded) {
     return points;
 }
 
-/********BLE******* */
-async function connectBLE() {
-  try {
-    device = await navigator.bluetooth.requestDevice({
-      filters: [{ namePrefix: 'Chronos ESP32' }],
-      optionalServices: [SERVICE_UUID]
-    });
-
-    device.addEventListener('gattserverdisconnected', onDisconnected);
-
-    server = await device.gatt.connect();
-    service = await server.getPrimaryService(SERVICE_UUID);
-    characteristicsRx = await service.getCharacteristic(CHARACTERISTIC_UUID_RX);
-
-    isConnected = true;
-    updateStatusUI();
-    console.log('✅ Dispositivo connesso');
-  } catch (error) {
-    console.error('❌ Errore di connessione:', error);
-    isConnected = false;
-  }
-}
-
-function onDisconnected() {
-  console.warn('⚠️ Dispositivo disconnesso');
-  isConnected = false;
-}
-
-
-async function sendNavigationData({ icon, distance, eta, total_km }) {
-  if (!isConnected) {
-    console.warn('🔌 Dispositivo non connesso');
-    return;
-  }
-
-  try {
-    await characteristics.icon.writeValue(Uint8Array.of(icon));
-    await characteristics.distance.writeValue(Uint16Array.of(distance));
-    await characteristics.eta.writeValue(Uint16Array.of(eta));
-    const kmBuffer = new ArrayBuffer(4);
-    new DataView(kmBuffer).setFloat32(0, total_km, true);
-    await characteristics.total_km.writeValue(kmBuffer);
-
-    console.log('📤 Dati inviati:', { icon, distance, eta, total_km });
-  } catch (error) {
-    console.error('❌ Errore invio dati:', error);
-  }
-}
-
-document.getElementById('connect-ble').addEventListener('click', async () => {
-  showScanningIndicator(true);
-  await connectBLE();
-  showScanningIndicator(false);
-});
-
-function showScanningIndicator(active) {
-  const status = document.getElementById('ble-scan-status');
-  status.textContent = active ? '🔍 Cercando dispositivi BLE...' : '';
-}
-
-setInterval(() => {
-  if (!isConnected) return;
-
-  const navData = {
-    icon: 1,             // svolta a destra
-    distance: 85,        // metri
-    eta: 320,            // secondi
-    total_km: 3.2        // km
-  };
-
-  sendNavigationData(navData);
-}, 2000); // ogni 2 secondi
-
-function updateStatusUI() {
-  const status = document.getElementById('ble-status');
-  status.textContent = isConnected ? '🟢 Connesso' : '🔴 Disconnesso';
-}
-
-function showScanningIndicator(active) {
-  const indicator = document.getElementById('ble-scan-status');
-  indicator.textContent = active ? '🔍 Cercando dispositivi BLE...' : '';
-}
-
-async function sendBLEMessage(message) {
-  if (!bleCharacteristic || !isConnected) return;
-
-  const encoder = new TextEncoder();
-  const data = encoder.encode(message);
-  try {
-    await bleCharacteristic.writeValue(data);
-    console.log('📨 Inviato via BLE:', message);
-  } catch (error) {
-    console.error('❌ Errore invio BLE:', error);
-  }
-}
-
-function disconnectBLE() {
-  if (bleDevice && bleDevice.gatt.connected) {
-    bleDevice.gatt.disconnect();
-    isConnected = false;
-    updateStatusUI();
-    console.log('🔌 Dispositivo BLE disconnesso');
-  }
-}
-
 function updateLocation(lat, lon) {
     const label = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
     document.getElementById('start').value = label;
     startCoords = [lon, lat];
     document.getElementById('startSuggestions').innerHTML = '';
 
-    // Aggiorna la mappa
     const coords = [lat, lon];
-    map.setView(coords, 15);
-     if (currentPoint) {
-            map.removeLayer(currentPoint);
-        }
+    map.setView(coords, 16);
+    
+    if (currentPoint) {
+        map.removeLayer(currentPoint);
+    }
 
-        // Aggiungi un punto rosso
-           currentPoint = L.circleMarker(coords, {
-               radius: 6,
-               color: 'red',
-               fillColor: 'red',
-               fillOpacity: 1
-           }).addTo(map);
+    currentPoint = L.circleMarker(coords, {
+        radius: 8,
+        color: 'red',
+        fillColor: 'red',
+        fillOpacity: 1
+    }).addTo(map);
+    
     checkTurnByTurn(lat, lon);
 }
 
-useLocationBtn.addEventListener('click', () => {
-    navigator.geolocation.getCurrentPosition((pos) => {
-        const lat = pos.coords.latitude;
-        const lon = pos.coords.longitude;
-        updateLocation(lat, lon);
-    }, () => {
-        alert("Impossibile ottenere la posizione.");
-    });
-});
-
 function getDistance(lat1, lon1, lat2, lon2) {
-    const R = 6371e3; // raggio della Terra in metri
+    const R = 6371e3;
     const toRad = x => x * Math.PI / 180;
 
     const dLat = toRad(lat2 - lat1);
@@ -414,68 +482,212 @@ function getDistance(lat1, lon1, lat2, lon2) {
 }
 
 function checkTurnByTurn(lat, lon) {
-    if (!steps || currentStepIndex >= steps.length) return;
-
-    const step = steps[currentStepIndex];
-    const [stepLon, stepLat] = step.location;
-    const distance = getDistance(lat, lon, stepLat, stepLon);
-
-      /*messaggio da inviare al waveshare....da aggiornare*/
-        const payload = {
-          type: "instruction",
-          step: currentStepIndex,
-          text: step.instruction,
-          lat: lat,
-          lon: lon
-        };
-        sendBLEMessage(JSON.stringify(payload));
-
-    if (distance < 20) { // entro 20 metri dalla manovra
-        showInstruction(step.instruction);
-        currentStepIndex++;
+    if (!navigationState.isNavigating || navigationState.currentStepIndex >= navigationState.steps.length) {
+        return;
     }
 
-
-}
-
-function showInstruction(text) {
-    const resultsDiv = document.getElementById('results');
-    resultsDiv.innerHTML = `<div class="instruction">${text}</div>`;
-}
-/*function startTrackingPosition() {
-    if (watchId) return; // già attivo
-    watchId = navigator.geolocation.watchPosition(
-        pos => {
-            const lat = pos.coords.latitude;
-            const lon = pos.coords.longitude;
-
-            // Aggiorna o crea il marker della posizione utente
-            if (userMarker) {
-                userMarker.setLatLng([lat, lon]);
+    const currentStep = navigationState.steps[navigationState.currentStepIndex];
+    const stepWaypoint = currentStep.way_points?.[0];
+    
+    if (stepWaypoint == null || !navigationState.routeGeometry[stepWaypoint]) {
+        return;
+    }
+    
+    const [stepLat, stepLon] = navigationState.routeGeometry[stepWaypoint];
+    const distanceToStep = getDistance(lat, lon, stepLat, stepLon);
+    
+    currentStep.distance = Math.max(0, distanceToStep);
+    
+    navigationState.remainingDistance = navigationState.steps
+        .slice(navigationState.currentStepIndex)
+        .reduce((sum, step) => sum + step.distance, 0);
+    
+    updateNavigationDisplay();
+    
+    if (distanceToStep < 15 && navigationState.currentStepIndex < navigationState.steps.length - 1) {
+        navigationState.currentStepIndex++;
+        updateNavigationDisplay();
+        
+        const rows = document.querySelectorAll('#results tbody tr');
+        rows.forEach((row, idx) => {
+            if (idx === navigationState.currentStepIndex) {
+                row.style.background = '#e3f2fd';
+                row.style.fontWeight = 'bold';
             } else {
-                userMarker = L.marker([lat, lon], {icon: L.icon({iconUrl: 'https://cdn-icons-png.flaticon.com/512/684/684908.png', iconSize: [32,32]})}).addTo(map);
+                row.style.background = '';
+                row.style.fontWeight = '';
             }
-            // Centra la mappa sulla posizione attuale (opzionale)
-            map.setView([lat, lon]);
-        },
-        err => {
-            alert("Impossibile ottenere la posizione in tempo reale.");
-        },
-        { enableHighAccuracy: true, maximumAge: 1000 }
-    );
-}*/
-
-/*function stopTrackingPosition() {
-    if (watchId) {
-        navigator.geolocation.clearWatch(watchId);
-        watchId = null;
-        if (userMarker) {
-            map.removeLayer(userMarker);
-            userMarker = null;
-        }
+        });
     }
-}*/
+}
 
-// Avvia il tracking quando la pagina viene caricata
-//startTrackingPosition();
+/*****Protocollo Chronos BLE*****/
+function sendChronosNavigationData(navData) {
 
+    if (!bleState.isConnected) return;
+
+    if (!window.AndroidBLE || typeof AndroidBLE.sendChronosNavigation !== 'function') {
+        console.warn('🔌 Interfaccia AndroidBLE non disponibile');
+        return;
+    }
+
+    try {
+        if (navData === null) {
+            AndroidBLE.sendChronosNavigation(JSON.stringify({ active: false }));
+        } else {
+            //carico l'icona nel BLEManager
+             AndroidBLE.prepareIcon(navData.icon+'.png');
+
+            //invio i dati di navigazione
+            AndroidBLE.sendChronosNavigation(JSON.stringify({
+                active: true,
+                icon:navData.icon,
+                stepDistance: navData.stepDistance,
+                totalDistance: navData.totalDistance,
+                time: navData.time,
+                eta: navData.eta,
+                instruction: navData.instruction,
+                exit_number: navData.exit_number
+            }));
+            setTimeout(() => {
+             //invio l'icona
+             AndroidBLE.sendNavigationIcon();
+        }, 200); // oppure 100ms per sicurezza
+
+
+        }
+    } catch (error) {
+        console.error('❌ Errore invio Chronos:', error);
+    }
+}
+
+//visulizzazione messaggi da esp32
+window.showESP32Message = function(msg) {
+    const container = document.getElementById('esp32-messages');
+    const log = document.getElementById('esp32-log');
+
+    container.style.display = 'block';
+
+    const time = new Date(msg.timestamp).toLocaleTimeString();
+    const entry = document.createElement('div');
+    entry.style.padding = '5px';
+    entry.style.borderBottom = '1px solid #ddd';
+    entry.style.marginBottom = '5px';
+
+    let parsedHtml = '';
+    if (msg.parsed) {
+        const parsed = typeof msg.parsed === 'string' ? JSON.parse(msg.parsed) : msg.parsed;
+        parsedHtml = `
+            <div><strong>Type:</strong> ${parsed.type || 'Unknown'}</div>
+            <div><strong>Command:</strong> ${parsed.command || 'N/A'}</div>
+            ${parsed.subCmd ? `<div><strong>SubCmd:</strong> ${parsed.subCmd}</div>` : ''}
+            ${parsed.value !== undefined ? `<div><strong>Value:</strong> ${parsed.value}</div>` : ''}
+        `;
+    }
+
+    entry.innerHTML = `
+        <div style="color: #666;">${time}</div>
+        <div><strong>Hex:</strong> <code>${msg.hex}</code></div>
+        <div><strong>Bytes:</strong> ${msg.length}</div>
+        ${parsedHtml}
+    `;
+
+    log.insertBefore(entry, log.firstChild);
+
+    while (log.children.length > 10) {
+        log.removeChild(log.lastChild);
+    }
+};
+
+function canvasToByteArray(canvas) {
+  const ctx = canvas.getContext('2d');
+  const imageData = ctx.getImageData(0, 0, 48, 48).data;
+  const byteArray = new Uint8Array((48 * 48) / 8);
+
+  for (let y = 0; y < 48; y++) {
+    for (let x = 0; x < 48; x++) {
+      const i = (y * 48 + x) * 4;
+      const r = imageData[i];
+      const g = imageData[i + 1];
+      const b = imageData[i + 2];
+      const a = imageData[i + 3];
+
+      const isDark = a > 128 && (r + g + b) < 384;
+      const bitIndex = y * 48 + x;
+      const byteIndex = Math.floor(bitIndex / 8);
+      const bitPos = 7 - (x % 8);
+
+      if (isDark) {
+        byteArray[byteIndex] |= (1 << bitPos);
+      }
+    }
+  }
+
+  return byteArray;
+}
+
+
+function loadPngToByteArray(path, callback) {
+  const img = new Image();
+  img.crossOrigin = 'anonymous'; // utile se il file è su un server esterno
+
+  img.onload = function () {
+    const canvas = document.createElement('canvas');
+    canvas.width = 48;
+    canvas.height = 48;
+    const ctx = canvas.getContext('2d');
+
+    // Disegna l'immagine ridimensionata su canvas 48x48
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+    const previewCanvas = document.getElementById('preview-icon');
+    const previewCtx = previewCanvas.getContext('2d');
+    previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+    previewCtx.drawImage(img, 0, 0, previewCanvas.width, previewCanvas.height);
+
+    // Converte in byte array binario
+    const byteArray = canvasToByteArray(canvas);
+
+    // Restituisce il risultato tramite callback
+    callback(byteArray);
+  };
+
+  img.src = path;
+}
+
+function loadAndSendIcon(filename) {
+  fetch(filename)
+    .then(response => response.blob())
+    .then(blob => createImageBitmap(blob))
+    .then(bitmap => {
+      const canvas = document.getElementById('preview-icon');
+      const ctx = canvas.getContext('2d');
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+
+      const byteArray = canvasToByteArray(canvas);
+
+      // Invia a Kotlin via WebView bridge
+      if (window.Android && window.Android.sendBytes) {
+        window.Android.sendBytes(Array.from(byteArray));
+      }
+    })
+    .catch(err => console.error("❌ Errore nel caricamento immagine:", err));
+}
+
+function getArrivalTime(seconds) {
+  const now = new Date();
+  const arrival = new Date(now.getTime() + seconds * 1000);
+
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+
+  const pad = (num) => String(num).padStart(2, '0');
+
+  const duration = `${pad(hrs)}h ${pad(mins)}m`;
+  const arrivalTime = `${pad(arrival.getHours())}:${pad(arrival.getMinutes())}`;
+
+  return {duration,arrivalTime};
+}

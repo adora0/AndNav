@@ -6,11 +6,160 @@
   <title>Calcolo Percorso Moto/Bici</title>
   <link rel="stylesheet" href="style.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    .ble-container {
+      background: #f5f5f5;
+      padding: 15px;
+      margin: 10px 0;
+      border-radius: 8px;
+      border: 2px solid #ddd;
+    }
+    .ble-connected {
+      border-color: #4CAF50;
+      background: #e8f5e9;
+    }
+    .ble-disconnected {
+      border-color: #f44336;
+      background: #ffebee;
+    }
+    .ble-scanning {
+      border-color: #2196F3;
+      background: #e3f2fd;
+    }
+    .ble-status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 18px;
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+    .status-dot {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .dot-connected { background: #4CAF50; }
+    .dot-disconnected { background: #f44336; }
+    .dot-scanning { 
+      background: #2196F3;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    .navigation-panel {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 20px;
+      margin: 15px 0;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      display: none;
+    }
+    .navigation-panel.active {
+      display: block;
+    }
+    .nav-instruction {
+      font-size: 24px;
+      font-weight: bold;
+      margin-bottom: 15px;
+      text-align: center;
+    }
+    .nav-distance {
+      font-size: 48px;
+      font-weight: bold;
+      text-align: center;
+      margin: 20px 0;
+    }
+    .nav-details {
+      display: flex;
+      justify-content: space-around;
+      margin-top: 15px;
+      font-size: 16px;
+    }
+    .nav-detail-item {
+      text-align: center;
+    }
+    .nav-detail-label {
+      opacity: 0.8;
+      font-size: 14px;
+    }
+    .maneuver-icon {
+      font-size: 64px;
+      text-align: center;
+      margin: 15px 0;
+    }
+    .progress-bar {
+      background: rgba(255,255,255,0.3);
+      height: 8px;
+      border-radius: 4px;
+      margin-top: 15px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      background: white;
+      height: 100%;
+      transition: width 0.3s ease;
+    }
+  </style>
 </head>
 <body>
   <h1>Calcola il tuo percorso</h1>
+  
+  <!-- Pannello stato Bluetooth -->
+  <div id="ble-container" class="ble-container">
+    <div class="ble-status">
+      <span class="status-dot" id="status-dot"></span>
+      <span id="ble-status-text">Bluetooth non inizializzato</span>
+    </div>
+    <div id="ble-device-info" style="font-size: 14px; color: #666;"></div>
+    <button id="retry-scan" style="margin-top: 10px; padding: 8px 16px; font-size: 16px;">
+      🔄 Riconnetti BLE
+    </button>
+  </div>
+  <div id="esp32-messages" style="background: #f5f5f5; padding: 10px; margin: 10px 0; border-radius: 8px; max-height: 200px; overflow-y: auto; display: none;">
+    <h4 style="margin: 0 0 10px 0;">📥 Messaggi da ESP32:</h4>
+    <div id="esp32-log" style="font-family: monospace; font-size: 12px;"></div>
+  </div>
+  <!-- Pannello navigazione attiva -->
+  <div id="navigation-panel" class="navigation-panel">
+    <div class="maneuver-icon" id="nav-icon"></div>
+    <div class="nav-instruction" id="nav-instruction">In attesa di navigazione...</div>
+    <div class="nav-distance" id="nav-distance">-- m</div>
+    <div class="progress-bar">
+      <div class="progress-fill" id="nav-progress"></div>
+    </div>
+    <div class="nav-details">
+      <div class="nav-detail-item">
+        <div class="nav-detail-label">Prossima manovra</div>
+        <div id="nav-next-distance">--</div>
+      </div>
+      <div class="nav-detail-item">
+        <div class="nav-detail-label">Distanza totale</div>
+        <div id="nav-total-distance">-- km</div>
+      </div>
+      <div class="nav-detail-item">
+        <div class="nav-detail-label">Tempo stimato</div>
+        <div id="nav-total-time">-- min</div>
+      </div>
+      <div class="nav-detail-item">
+        <div class="nav-detail-label">ETA</div>
+        <div id="nav-eta">-- min</div>
+      </div>
+    </div>
+  </div>
+  <div id="navigation-controls" style="display: none; margin: 15px 0;">
+    <button id="start-navigation" style="padding: 12px 24px; font-size: 18px; background: #4CAF50; color: white; border: none; border-radius: 8px; cursor: pointer;">
+      🚀 Avvia Navigazione
+    </button>
+    <button id="stop-navigation" style="padding: 12px 24px; font-size: 18px; background: #f44336; color: white; border: none; border-radius: 8px; cursor: pointer; display: none; margin-left: 10px;">
+      ⏹️ Ferma Navigazione
+    </button>
+  </div>
   <form id="routeForm">
-
     <div class="input-group">
       <input type="text" id="start" placeholder="Indirizzo di partenza" required />
       <button type="button" id="useLocation">📍 Usa la mia posizione</button>
@@ -21,23 +170,20 @@
       <ul id="endSuggestions" class="suggestions"></ul>
     </div>
     <select id="profile">
-      <option value="cycling-regular">Bici</option>
       <option value="driving-car">Moto</option>
+      <option value="cycling-regular">Bici</option>
     </select>
     <select id="preference">
       <option value="recommended">Raccomandato</option>
       <option value="fastest">Più veloce</option>
       <option value="shortest">Più breve</option>
-      <option value="custom">Personalizzato</option>
     </select>
-
     <button type="submit">Calcola percorso</button>
   </form>
-<button id="connect-ble">🔌 Connetti al navigatore</button>
-<div id="ble-scan-status" style="margin-top: 10px; font-weight: bold;"></div>
-
 
   <div id="results"></div>
+  <!-- Dopo <div id="results"></div> -->
+
   <div id="map"></div>
 
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
