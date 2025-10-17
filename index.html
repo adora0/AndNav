@@ -24,6 +24,11 @@
     <button id="retry-scan" class="btn-secondary">
       🔄 Riconnetti BLE
     </button>
+	  <!-- Messaggi ESP32 (debug - collapsible) -->
+  <details id="esp32-messages-details">
+    <summary>🔧 Debug ESP32</summary>
+    <div id="esp32-log"></div>
+  </details>
   </div>
 
   <!-- Pannello navigazione attiva -->
@@ -125,11 +130,7 @@
     <div id="results"></div>
   </div>
 
-  <!-- Messaggi ESP32 (debug - collapsible) -->
-  <details id="esp32-messages-details">
-    <summary>🔧 Debug ESP32</summary>
-    <div id="esp32-log"></div>
-  </details>
+
 
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <script src="script.js"></script>

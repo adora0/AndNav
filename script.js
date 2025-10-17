@@ -26,6 +26,8 @@ let currentPoint = null;
 let startCoords = null;
 let endCoords = null;
 let waypoints = [];
+let lastPosition = null;
+let speed = 0;
 let map = L.map('map').setView([41.9028, 12.4964], 13);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap'
@@ -298,7 +300,7 @@ document.getElementById('stop-navigation').addEventListener('click', () => {
     document.getElementById('navigation-panel').classList.remove('active');
     document.getElementById('start-navigation').style.display = 'inline-block';
     document.getElementById('stop-navigation').style.display = 'none';
-
+    speed=0;
     sendChronosNavigationData(null); // Segnala fine navigazione
     console.log('⏹️ Navigazione fermata');
 });
@@ -350,47 +352,54 @@ function startNavigation(data) {
 
 function displayRoute(data) {
     const route = data.routes[0];
-    const segment = route.segments?.[0];
-    const steps = segment?.steps;
+    const segments = route.segments || [];
+
+    let allSteps = [];
+    let usedIndexes = new Set();
+    let geometry = decodePolyline(route.geometry);
+
+    segments.forEach(segment => {
+        if (Array.isArray(segment.steps)) {
+            allSteps = allSteps.concat(segment.steps);
+        }
+    });
 
     const duration = (route.summary.duration / 60).toFixed(1);
     const distance = (route.summary.distance / 1000).toFixed(2);
 
     let stepsHtml = '<p>Nessuna istruzione disponibile.</p>';
-    if (Array.isArray(steps) && steps.length > 0) {
-        console.log(steps);
+    if (allSteps.length > 0) {
         stepsHtml = `
-    <table>
-      <thead>
-        <tr>
-          <th>🧭</th>
-          <th>Istruzione</th>
-          <th>Distanza</th>
-          <th>Durata</th>
-          <th>Uscita rotatoria</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${steps.map((step, idx) => {
-            //const chronosIcon = chronosIconMap[step.type] || 0;
-            const icon = maneuverIcons[step.type];
-            return `
-            <tr style="${idx === navigationState.currentStepIndex ? 'background: #e3f2fd; font-weight: bold;' : ''}">
-              <td><img src="${icon}" width="48" height="48" alt="Icona" /></td>
-              <td>${step.instruction}</td>
-              <td>${step.distance.toFixed(0)} m</td>
-              <td>${step.duration.toFixed(0)} sec</td>
-              <td>${(step.exit_number == null) ? '' : step.exit_number}</td>
-            </tr>`;
-        }).join('')}
-      </tbody>
-    </table>`;
+        <table>
+          <thead>
+            <tr>
+              <th>🧭</th>
+              <th>Istruzione</th>
+              <th>Distanza</th>
+              <th>Durata</th>
+              <th>Uscita rotatoria</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${allSteps.map((step, idx) => {
+                const icon = maneuverIcons[step.type];
+                return `
+                <tr style="${idx === navigationState.currentStepIndex ? 'background: #e3f2fd; font-weight: bold;' : ''}">
+                  <td><img src="${icon}" width="48" height="48" alt="Icona" /></td>
+                  <td>${step.instruction}</td>
+                  <td>${step.distance.toFixed(0)} m</td>
+                  <td>${step.duration.toFixed(0)} sec</td>
+                  <td>${(step.exit_number == null) ? '' : step.exit_number}</td>
+                </tr>`;
+            }).join('')}
+          </tbody>
+        </table>`;
     }
 
     results.innerHTML = `
-    <h2>⏱️ Durata: ${duration} min</h2>
-    <h3>📍 Distanza: ${distance} km</h3>
-    ${stepsHtml}
+      <h2>⏱️ Durata: ${duration} min</h2>
+      <h3>📍 Distanza: ${distance} km</h3>
+      ${stepsHtml}
     `;
 
     if (window.stepMarkers) {
@@ -398,54 +407,87 @@ function displayRoute(data) {
     }
     window.stepMarkers = [];
 
-    const geometry = decodePolyline(route.geometry);
-    const usedIndexes = new Set();
+    allSteps.forEach((step, idx) => {
+        const index = step.way_points?.[0] ?? idx;
+        if (usedIndexes.has(index) || !geometry[index]) return;
 
-    steps.forEach(step => {
-        const [startIndex, endIndex] = step.way_points || [];
-
-        [startIndex, endIndex].forEach(index => {
-            
-            if (index == null || usedIndexes.has(index) || !geometry[index]) return;
-
-            usedIndexes.add(index);
-            const position = geometry[index];
-            const icon = maneuverIcons[step.type];
-
-            const marker = L.marker(position).addTo(map).bindPopup(`
-      <div style="font-size:1.2em;text-align:center;">
-        <img src="${icon}" width="48" height="48" alt="Icona" />
-      </div>
-      <div style="font-size:0.9em;margin-top:4px;">
-        <strong>${step.instruction}</strong><br />
-        ${step.distance.toFixed(0)} m — ${step.duration.toFixed(0)} sec
-      </div>
-    `);
-            window.stepMarkers.push(marker);
-        });
+        usedIndexes.add(index);
+        const position = geometry[index];
+        const icon = maneuverIcons[step.type];
+		const markerIcon = L.icon({	
+			iconUrl: "marker.png",		
+			iconSize: [10, 10],
+			iconAnchor: [0, 0], // centro in basso
+			popupAnchor: [0, -48]
+		});
+        const marker = L.marker(position,{ icon: markerIcon }).addTo(map).bindPopup(`
+          <div style="font-size:1.2em;text-align:center;">
+            <img src="${icon}" width="48" height="48" alt="Icona" />
+          </div>
+          <div style="font-size:0.9em;margin-top:4px;">
+            <strong>${step.instruction}</strong><br />
+            ${step.distance.toFixed(0)} m — ${step.duration.toFixed(0)} sec
+          </div>
+        `);
+        window.stepMarkers.push(marker);
     });
 
-    const coords = decodePolyline(route.geometry);
     if (routeLayer) map.removeLayer(routeLayer);
-    routeLayer = L.polyline(coords, { color: 'blue', weight: 5 }).addTo(map);
-    map.fitBounds(routeLayer.getBounds());
+    routeLayer = L.layerGroup().addTo(map);
 
+	const segmentColors = ['#007bff']; // colori ciclici
+
+	segments.forEach((segment, idx) => {
+		const [startIdx, endIdx] = segment.way_points || [0, geometry.length - 1];
+		const segmentCoords = geometry.slice(startIdx, endIdx + 1);
+		const color = segmentColors[idx % segmentColors.length];
+
+		const polyline = L.polyline(segmentCoords, {
+			color,
+			weight: 5,
+			opacity: 0.9
+		}).addTo(routeLayer);
+	});
+	
+	// Partenza
+	L.marker(geometry[0], {
+		icon: L.icon({
+			iconUrl: 'start.png',
+			iconSize: [32, 48],
+			iconAnchor: [16, 32]
+		})
+	}).addTo(map).bindPopup('📍 Partenza');
+
+	// Arrivo
+	L.marker(geometry[geometry.length - 1], {
+		icon: L.icon({
+			iconUrl: 'end.png',
+			iconSize: [32, 48],
+			iconAnchor: [16, 32]
+		})
+	}).addTo(map).bindPopup('🏁 Arrivo');
+
+	// Tappe intermedie
+	waypoints.forEach(([lng, lat], i) => {
+		L.marker([lat, lng], {
+			icon: L.icon({
+				iconUrl: 'way	.png',
+				iconSize: [28, 32],
+				iconAnchor: [14, 28]
+			})
+		}).addTo(map).bindPopup(`🛑 Tappa ${i + 1}`);
+	});
+	
     document.getElementById('navigation-controls').style.display = 'block';
     document.getElementById('start-navigation').style.display = 'inline-block';
     document.getElementById('stop-navigation').style.display = 'none';
-
-    
 }
+
 
 /*visualizza risultati*/
 document.getElementById('toggle-results').addEventListener('click', () => {
   const results = document.getElementById('results');
-
-  if (results.style.display === 'none' || results.style.display === '') {
-    results.style.display = 'block';
-  } else {
-    results.style.display = 'none';
-  }
+  results.classList.toggle('results-hidden');
 });
 
 
@@ -528,6 +570,17 @@ function updateLocation(lat, lon) {
 
     const coords = [lat, lon];
     map.setView(coords, 16);
+
+	/*speed*/
+	const now = Date.now();
+	if (lastPosition) {
+		const dt = (now - lastPosition.timestamp) / 1000;
+		const d = getDistance(lat, lon, lastPosition.lat, lastPosition.lon);
+		speed = ((d / dt) * 3.6).toFixed(1); // m/s
+		console.log(`🚗 Velocità: ${(speed * 3.6).toFixed(1)} km/h`);
+	}
+	lastPosition = { lat, lon, timestamp: now };
+
 
     if (currentPoint) {
         map.removeLayer(currentPoint);
@@ -630,8 +683,6 @@ function sendChronosNavigationData(navData) {
                 //invio l'icona
                 AndroidBLE.sendNavigationIcon();
             }, 200); // oppure 100ms per sicurezza
-
-
         }
     } catch (error) {
         console.error('❌ Errore invio Chronos:', error);
