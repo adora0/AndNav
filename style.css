@@ -1,0 +1,493 @@
+/* Reset e base */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #f5f5f5;
+  padding-bottom: 20px;
+}
+
+/* Header */
+.app-header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 15px 20px;
+  text-align: center;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+}
+
+.app-header h1 {
+  font-size: 24px;
+  font-weight: 600;
+}
+
+/* Container principale */
+.route-form, .ble-container, .navigation-panel, 
+#navigation-controls, #results-container {
+  margin: 15px;
+  background: white;
+  border-radius: 12px;
+  padding: 15px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+/* BLE Status */
+.ble-container {
+  border: 2px solid #ddd;
+}
+
+.ble-connected {
+  border-color: #4CAF50;
+  background: #e8f5e9;
+}
+
+.ble-disconnected {
+  border-color: #f44336;
+  background: #ffebee;
+}
+
+.ble-scanning {
+  border-color: #2196F3;
+  background: #e3f2fd;
+}
+
+.ble-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.status-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dot-connected { background: #4CAF50; }
+.dot-disconnected { background: #f44336; }
+.dot-scanning {
+  background: #2196F3;
+  animation: pulse 1.5s infinite;
+}
+
+.results-hidden {
+  display: none !important;
+}
+
+.btn-remove-waypoint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  font-size: 16px;
+  background-color: #fff;
+  color: #d00;
+  border: 1px solid #d00;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-left: 8px;
+  margin-top: 4px;
+  padding: 0;
+}
+
+.btn-remove-waypoint:hover {
+  background-color: #ffe5e5;
+}
+
+
+
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+#ble-device-info {
+  font-size: 13px;
+  color: #666;
+  margin-bottom: 10px;
+}
+
+/* Pannello navigazione */
+.navigation-panel {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  display: none;
+  position: sticky;
+  top: 70px;
+  z-index: 999;
+}
+
+.navigation-panel.active {
+  display: block;
+}
+
+.nav-header {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.maneuver-icon {
+  text-align: center;
+  margin: 10px 0;
+}
+
+.maneuver-icon img {
+  filter: brightness(0) invert(1);
+}
+
+.nav-instruction {
+  font-size: 18px;
+  font-weight: 600;
+  text-align: center;
+  margin: 10px 0;
+  line-height: 1.4;
+}
+
+.nav-distance {
+  font-size: 48px;
+  font-weight: 700;
+  text-align: center;
+  margin: 15px 0;
+}
+
+.progress-bar {
+  background: rgba(255,255,255,0.3);
+  height: 6px;
+  border-radius: 3px;
+  margin: 15px 0;
+  overflow: hidden;
+}
+
+.progress-fill {
+  background: white;
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.nav-details {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-top: 15px;
+}
+
+.nav-detail-item {
+  text-align: center;
+}
+
+.nav-detail-label {
+  font-size: 11px;
+  opacity: 0.8;
+  margin-bottom: 4px;
+}
+
+.nav-detail-value {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Form */
+.input-group {
+  position: relative;
+  margin-bottom: 15px;
+}
+
+.input-label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: #333;
+}
+
+.input-with-button {
+  display: flex;
+  gap: 8px;
+}
+
+input[type="text"] {
+  flex: 1;
+  padding: 12px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 15px;
+  transition: border-color 0.3s;
+}
+
+input[type="text"]:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.suggestions {
+  list-style: none;
+  background: white;
+  border: 2px solid #e0e0e0;
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  max-height: 200px;
+  overflow-y: auto;
+  position: absolute;
+  z-index: 100;
+  width: 100%;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.suggestions li {
+  padding: 12px;
+  border-bottom: 1px solid #f0f0f0;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.suggestions li:hover {
+  background: #f5f5f5;
+}
+
+.suggestions li:last-child {
+  border-bottom: none;
+}
+
+.options-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.select-input {
+  padding: 12px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 14px;
+  background: white;
+  cursor: pointer;
+}
+
+/* Waypoints */
+#waypoints-container {
+  margin: 10px 0;
+}
+
+.waypoint-group {
+  position: relative;
+  margin-bottom: 15px;
+  padding-left: 30px;
+}
+
+.waypoint-group::before {
+  content: "⚑";
+  position: absolute;
+  left: 0;
+  top: 38px;
+  font-size: 18px;
+}
+
+.waypoint-group input {
+  width: calc(100% - 40px);
+}
+
+.btn-remove-waypoint {
+  position: absolute;
+  right: 0;
+  top: 32px;
+  padding: 10px;
+  background: #f44336;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+/* Buttons */
+button {
+  cursor: pointer;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  transition: all 0.3s;
+}
+
+.btn-primary {
+  width: 100%;
+  padding: 15px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  font-size: 16px;
+  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+}
+
+.btn-primary:active {
+  transform: scale(0.98);
+}
+
+.btn-start {
+  width: 100%;
+  padding: 15px;
+  background: #4CAF50;
+  color: white;
+  font-size: 18px;
+  box-shadow: 0 4px 15px rgba(76, 175, 80, 0.4);
+}
+
+.btn-stop {
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  font-size: 14px;
+}
+
+.btn-reset {
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  font-size: 14px;
+}
+
+.btn-secondary {
+  padding: 10px 16px;
+  background: #2196F3;
+  color: white;
+  font-size: 14px;
+}
+
+.btn-icon {
+  padding: 12px;
+  background: #667eea;
+  color: white;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.btn-add-waypoint {
+  width: 100%;
+  padding: 12px;
+  background: #f5f5f5;
+  color: #667eea;
+  font-size: 14px;
+  border: 2px dashed #667eea;
+  margin-bottom: 15px;
+}
+
+.btn-toggle {
+  width: 100%;
+  padding: 12px;
+  background: #f5f5f5;
+  color: #333;
+  font-size: 14px;
+  margin-bottom: 10px;
+  text-align: left;
+}
+
+#navigation-controls {
+  display: none;
+}
+
+#navigation-controls.show {
+  display: block;
+}
+
+/* Mappa */
+#map {
+  height: 50vh;
+  min-height: 300px;
+  margin: 15px;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+/* Risultati */
+#results {
+  max-height: 0;
+  transition: max-height 0.3s ease;
+}
+
+#results.show {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+  font-size: 13px;
+}
+
+th, td {
+  padding: 10px 8px;
+  text-align: left;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+th {
+  background: #f9f9f9;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+}
+
+td img {
+  vertical-align: middle;
+}
+
+/* Debug ESP32 */
+#esp32-messages-details {
+  margin: 15px;
+  background: white;
+  border-radius: 12px;
+  padding: 15px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+#esp32-messages-details summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 5px;
+}
+
+#esp32-log {
+  margin-top: 10px;
+  max-height: 200px;
+  overflow-y: auto;
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+}
+
+#esp32-log > div {
+  padding: 8px;
+  border-bottom: 1px solid #f0f0f0;
+  background: #f9f9f9;
+  margin-bottom: 5px;
+  border-radius: 4px;
+}
+
+/* Responsive */
+@media (min-width: 768px) {
+  body {
+    max-width: 600px;
+    margin: 0 auto;
+  }
+  
+  #map {
+    height: 60vh;
+  }
+}
+
+
