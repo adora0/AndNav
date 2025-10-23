@@ -619,6 +619,27 @@ function updateLocation(lat, lon, isUpdate) {
     }).addTo(map);
 
     checkTurnByTurn(lat, lon);
+
+    /**aggiorno meteo
+     * da inviare
+     * ora *
+     * wind 2byte *
+     * humidity 
+     * uv 
+     * icon x
+     * temp *
+     * ***/
+    if(now%(15 * 60 * 1000) < 5000){
+        getCurrentWeather(lat, lon).then(data => {
+            console.log(`Meteo attuale: ${lat} - ${lon}`, data);
+        });
+    }
+
+    setInterval(() => {
+        getCurrentWeather(lat, lon).then(data => {
+             console.log(`Meteo attuale: ${lat} - ${lon}`, data);
+        });
+    }, 50000);
 }
 
 function getDistance(lat1, lon1, lat2, lon2) {
@@ -838,3 +859,26 @@ function getArrivalTime(seconds) {
 
     return { duration, arrivalTime };
 }
+
+async function getCurrentWeather(lat, lon) {
+  const endpoint = `https://api.open-meteo.com/v1/forecast`;
+  const params = new URLSearchParams({
+    latitude: lat,
+    longitude: lon,
+    current: 'temperature_2m,precipitation,rain,weathercode,relative_humidity_2m,uv_index,windspeed_10m',
+    timezone: 'auto',
+    models: 'best_match',
+    forecast_hours: 1
+  });
+
+  try {
+    const response = await fetch(`${endpoint}?${params.toString()}`);
+    if (!response.ok) throw new Error(`Errore API: ${response.status}`);
+    const data = await response.json();
+    return data.current;
+  } catch (error) {
+    console.error('Errore nel recupero dei dati meteo:', error);
+    return null;
+  }
+}
+
